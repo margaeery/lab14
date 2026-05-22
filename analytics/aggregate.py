@@ -4,6 +4,8 @@ import polars as pl
 
 
 def load_data(file_path):
+    if file_path.lower().endswith(".parquet"):
+        return pl.read_parquet(file_path)
     return pl.read_ndjson(file_path)
 
 
@@ -52,7 +54,7 @@ def main():
         os.path.dirname(os.path.abspath(__file__)),
     )
     file_path = os.path.join(
-        project_root, "collector", "leagues_raw.json",
+        project_root, "analytics", "leagues_clean.parquet",
     )
 
     df = load_data(file_path)

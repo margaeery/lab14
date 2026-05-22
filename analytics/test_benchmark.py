@@ -13,7 +13,7 @@ def create_test_parquet(path, data):
 
 def test_get_parquet_path_exists():
     path = get_parquet_path()
-    assert os.path.isfile(path)
+    assert path.endswith(os.path.join("analytics", "leagues_clean.parquet"))
 
 
 def test_duckdb_query_returns_correct_columns(tmp_path):
