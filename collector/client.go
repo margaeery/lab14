@@ -120,7 +120,8 @@ func executeRequest[T any](ctx context.Context, client *APIClient, endpoint stri
 		return apiResponse[T]{}, false, fmt.Errorf("decode %s response: %w", endpoint, err)
 	}
 
-	if payload.Status != "ok" && payload.Status != "success" && payload.Status != "OK" && payload.Status != "" {
+	validStatuses := map[string]bool{"ok": true, "success": true, "": true}
+	if !validStatuses[strings.ToLower(payload.Status)] {
 		return apiResponse[T]{}, false, fmt.Errorf("request %s failed: %s", endpoint, payload.Message)
 	}
 

@@ -4,16 +4,21 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 )
 
 func main() {
-	if err := run(); err != nil {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	if err := run(ctx); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-func run() error {
+func run(ctx context.Context) error {
 	config, err := LoadConfig()
 	if err != nil {
 		return err
@@ -32,7 +37,7 @@ func run() error {
 
 	service := NewCollectorService(client, writer)
 
-	if err := service.CollectLeagues(context.Background()); err != nil {
+	if err := service.CollectLeagues(ctx); err != nil {
 		return err
 	}
 

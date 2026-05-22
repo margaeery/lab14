@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"testing"
 	"time"
@@ -34,7 +35,7 @@ func (m *mockWriter) Close() error {
 
 func TestBatchWriter_FlushByBatchSize(t *testing.T) {
 	inner := &mockWriter{}
-	bw := NewBatchWriter(inner, 3, 10*time.Second)
+	bw := NewBatchWriter(context.Background(), inner, 3, 10*time.Second)
 	bw.Start()
 
 	for i := 1; i <= 3; i++ {
@@ -57,7 +58,7 @@ func TestBatchWriter_FlushByBatchSize(t *testing.T) {
 
 func TestBatchWriter_FlushByTimer(t *testing.T) {
 	inner := &mockWriter{}
-	bw := NewBatchWriter(inner, 50, 200*time.Millisecond)
+	bw := NewBatchWriter(context.Background(), inner, 50, 200*time.Millisecond)
 	bw.Start()
 
 	if err := bw.Write(League{ID: 1}); err != nil {
@@ -82,7 +83,7 @@ func TestBatchWriter_FlushByTimer(t *testing.T) {
 
 func TestBatchWriter_FlushOnClose(t *testing.T) {
 	inner := &mockWriter{}
-	bw := NewBatchWriter(inner, 50, 10*time.Second)
+	bw := NewBatchWriter(context.Background(), inner, 50, 10*time.Second)
 	bw.Start()
 
 	if err := bw.Write(League{ID: 1}); err != nil {
@@ -101,7 +102,7 @@ func TestBatchWriter_FlushOnClose(t *testing.T) {
 
 func TestBatchWriter_EmptyClose(t *testing.T) {
 	inner := &mockWriter{}
-	bw := NewBatchWriter(inner, 50, 10*time.Second)
+	bw := NewBatchWriter(context.Background(), inner, 50, 10*time.Second)
 	bw.Start()
 
 	bw.Close()
@@ -113,7 +114,7 @@ func TestBatchWriter_EmptyClose(t *testing.T) {
 
 func TestBatchWriter_MultipleBatches(t *testing.T) {
 	inner := &mockWriter{}
-	bw := NewBatchWriter(inner, 2, 10*time.Second)
+	bw := NewBatchWriter(context.Background(), inner, 2, 10*time.Second)
 	bw.Start()
 
 	for i := 1; i <= 5; i++ {
@@ -140,7 +141,7 @@ func TestBatchWriter_MultipleBatches(t *testing.T) {
 
 func TestBatchWriter_WriteError(t *testing.T) {
 	inner := &mockWriter{writeErr: errors.New("write failed")}
-	bw := NewBatchWriter(inner, 2, 10*time.Second)
+	bw := NewBatchWriter(context.Background(), inner, 2, 10*time.Second)
 	bw.Start()
 
 	if err := bw.Write(League{ID: 1}); err != nil {
@@ -160,7 +161,7 @@ func TestBatchWriter_WriteError(t *testing.T) {
 
 func TestBatchWriter_FlushError(t *testing.T) {
 	inner := &mockWriter{flushErr: errors.New("flush failed")}
-	bw := NewBatchWriter(inner, 2, 10*time.Second)
+	bw := NewBatchWriter(context.Background(), inner, 2, 10*time.Second)
 	bw.Start()
 
 	if err := bw.Write(League{ID: 1}); err != nil {
@@ -180,7 +181,7 @@ func TestBatchWriter_FlushError(t *testing.T) {
 
 func TestBatchWriter_WriteAfterClose(t *testing.T) {
 	inner := &mockWriter{}
-	bw := NewBatchWriter(inner, 50, 10*time.Second)
+	bw := NewBatchWriter(context.Background(), inner, 50, 10*time.Second)
 	bw.Start()
 	bw.Close()
 
@@ -192,7 +193,7 @@ func TestBatchWriter_WriteAfterClose(t *testing.T) {
 
 func TestBatchWriter_TimerResetsAfterBatchFlush(t *testing.T) {
 	inner := &mockWriter{}
-	bw := NewBatchWriter(inner, 2, 200*time.Millisecond)
+	bw := NewBatchWriter(context.Background(), inner, 2, 200*time.Millisecond)
 	bw.Start()
 
 	bw.Write(League{ID: 1})
@@ -213,4 +214,112 @@ func TestBatchWriter_TimerResetsAfterBatchFlush(t *testing.T) {
 	}
 
 	bw.Close()
+}
+
+func TestBatchWriter_ContextCancellation(t *testing.T) {
+	inner := &mockWriter{}
+	ctx, cancel := context.WithCancel(context.Background())
+	bw := NewBatchWriter(ctx, inner, 50, 10*time.Second)
+	bw.Start()
+
+	if err := bw.Write(League{ID: 1}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	cancel()
+	time.Sleep(100 * time.Millisecond)
+
+	err := bw.Write(League{ID: 2})
+	if err == nil {
+		t.Fatal("expected error after context cancellation")
+	}
+
+	bw.Close()
+}
+
+func TestBatchWriter_GracefulDrain(t *testing.T) {
+	inner := &mockWriter{}
+	ctx, cancel := context.WithCancel(context.Background())
+	bw := NewBatchWriter(ctx, inner, 50, 10*time.Second)
+	bw.Start()
+
+	for i := 1; i <= 10; i++ {
+		if err := bw.Write(League{ID: int64(i)}); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	}
+
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+	bw.Close()
+
+	if len(inner.writes) != 10 {
+		t.Errorf("expected 10 writes after graceful drain, got %d", len(inner.writes))
+	}
+	if inner.flushCount < 1 {
+		t.Errorf("expected at least 1 flush, got %d", inner.flushCount)
+	}
+}
+
+func TestBatchWriter_GracefulDrainPartialBatch(t *testing.T) {
+	inner := &mockWriter{}
+	ctx, cancel := context.WithCancel(context.Background())
+	bw := NewBatchWriter(ctx, inner, 10, 10*time.Second)
+	bw.Start()
+
+	for i := 1; i <= 3; i++ {
+		if err := bw.Write(League{ID: int64(i)}); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	}
+
+	cancel()
+	bw.Close()
+
+	if len(inner.writes) != 3 {
+		t.Errorf("expected 3 writes, got %d", len(inner.writes))
+	}
+	if inner.flushCount < 1 {
+		t.Errorf("expected at least 1 flush, got %d", inner.flushCount)
+	}
+}
+
+func TestBatchWriter_GracefulDrainMultipleBatches(t *testing.T) {
+	inner := &mockWriter{}
+	ctx, cancel := context.WithCancel(context.Background())
+	bw := NewBatchWriter(ctx, inner, 3, 10*time.Second)
+	bw.Start()
+
+	for i := 1; i <= 7; i++ {
+		if err := bw.Write(League{ID: int64(i)}); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	}
+
+	cancel()
+	bw.Close()
+
+	if len(inner.writes) != 7 {
+		t.Errorf("expected 7 writes, got %d", len(inner.writes))
+	}
+	if inner.flushCount != 3 {
+		t.Errorf("expected 3 flushes (2 full + 1 partial), got %d", inner.flushCount)
+	}
+}
+
+func TestBatchWriter_GracefulDrainEmptyChannel(t *testing.T) {
+	inner := &mockWriter{}
+	ctx, cancel := context.WithCancel(context.Background())
+	bw := NewBatchWriter(ctx, inner, 10, 10*time.Second)
+	bw.Start()
+
+	cancel()
+	bw.Close()
+
+	if len(inner.writes) != 0 {
+		t.Errorf("expected 0 writes, got %d", len(inner.writes))
+	}
+	if inner.flushCount != 0 {
+		t.Errorf("expected 0 flushes, got %d", inner.flushCount)
+	}
 }

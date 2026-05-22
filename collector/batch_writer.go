@@ -15,10 +15,13 @@ type BatchWriter struct {
 	cancel      context.CancelFunc
 	wg          sync.WaitGroup
 	errCh       chan error
+	closeOnce   sync.Once
+	closed      bool
+	mu          sync.Mutex
 }
 
-func NewBatchWriter(inner Writer, batchSize int, flushPeriod time.Duration) *BatchWriter {
-	ctx, cancel := context.WithCancel(context.Background())
+func NewBatchWriter(ctx context.Context, inner Writer, batchSize int, flushPeriod time.Duration) *BatchWriter {
+	ctx, cancel := context.WithCancel(ctx)
 	return &BatchWriter{
 		inner:       inner,
 		batchSize:   batchSize,
@@ -36,6 +39,17 @@ func (bw *BatchWriter) Start() {
 }
 
 func (bw *BatchWriter) Write(league League) error {
+	bw.mu.Lock()
+	if bw.closed {
+		bw.mu.Unlock()
+		return context.Canceled
+	}
+	bw.mu.Unlock()
+
+	if bw.ctx.Err() != nil {
+		return bw.ctx.Err()
+	}
+
 	select {
 	case <-bw.ctx.Done():
 		return bw.ctx.Err()
@@ -45,9 +59,14 @@ func (bw *BatchWriter) Write(league League) error {
 }
 
 func (bw *BatchWriter) Close() error {
-	bw.cancel()
-	close(bw.channel)
+	bw.closeOnce.Do(func() {
+		bw.mu.Lock()
+		bw.closed = true
+		bw.mu.Unlock()
+		bw.cancel()
+	})
 	bw.wg.Wait()
+	close(bw.errCh)
 
 	select {
 	case err := <-bw.errCh:
@@ -89,11 +108,7 @@ func (bw *BatchWriter) run() {
 
 	for {
 		select {
-		case league, ok := <-bw.channel:
-			if !ok {
-				flush()
-				return
-			}
+		case league := <-bw.channel:
 			batch = append(batch, league)
 			if len(batch) >= bw.batchSize {
 				flush()
@@ -108,6 +123,20 @@ func (bw *BatchWriter) run() {
 		case <-timer.C:
 			flush()
 			timer.Reset(bw.flushPeriod)
+		case <-bw.ctx.Done():
+			flush()
+			for {
+				select {
+				case league := <-bw.channel:
+					batch = append(batch, league)
+					if len(batch) >= bw.batchSize {
+						flush()
+					}
+				default:
+					flush()
+					return
+				}
+			}
 		}
 	}
 }

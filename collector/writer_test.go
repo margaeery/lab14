@@ -54,7 +54,9 @@ func TestJSONLinesWriter_Write(t *testing.T) {
 			t.Fatalf("unexpected error writing second line: %v", err)
 		}
 
-		writer.Close()
+		if err := writer.Close(); err != nil {
+			t.Fatalf("close error: %v", err)
+		}
 
 		content, err := os.ReadFile(outputPath)
 		if err != nil {
@@ -101,7 +103,9 @@ func TestJSONLinesWriter_Write(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
-		writer.Close()
+		if err := writer.Close(); err != nil {
+			t.Fatalf("close error: %v", err)
+		}
 
 		content, err := os.ReadFile(outputPath)
 		if err != nil {
@@ -163,7 +167,9 @@ func TestJSONLinesWriter_Concurrent(t *testing.T) {
 		<-done
 	}
 
-	writer.Close()
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close error: %v", err)
+	}
 
 	content, err := os.ReadFile(outputPath)
 	if err != nil {

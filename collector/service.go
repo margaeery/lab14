@@ -17,9 +17,11 @@ func NewCollectorService(client *APIClient, writer Writer) *CollectorService {
 	return &CollectorService{
 		client: client,
 		writer: writer,
-		limit:  1000,
+		limit:  DefaultPageLimit,
 	}
 }
+
+const DefaultPageLimit = 1000
 
 func (service *CollectorService) CollectLeagues(ctx context.Context) error {
 	countries, err := service.client.FetchCountries(ctx)
@@ -30,10 +32,11 @@ func (service *CollectorService) CollectLeagues(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	batchWriter := NewBatchWriter(service.writer, 50, 3*time.Second)
+	batchWriter := NewBatchWriter(ctx, service.writer, 50, 3*time.Second)
 	batchWriter.Start()
 
 	errCh := make(chan error, len(countries))
+	var errOnce sync.Once
 
 	var workerGroup sync.WaitGroup
 	for _, country := range countries {
@@ -46,7 +49,9 @@ func (service *CollectorService) CollectLeagues(ctx context.Context) error {
 				case errCh <- fmt.Errorf("collect leagues for country %d: %w", country.ID, err):
 				default:
 				}
-				cancel()
+				errOnce.Do(func() {
+					cancel()
+				})
 			}
 		}()
 	}

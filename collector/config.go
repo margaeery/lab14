@@ -44,7 +44,7 @@ func LoadConfig() (Config, error) {
 	}
 
 	return config, nil
-	}
+}
 
 func findProjectRoot() (string, error) {
 	workingDir, err := os.Getwd()

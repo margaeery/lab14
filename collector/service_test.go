@@ -121,7 +121,9 @@ func TestCollectorService_CollectLeagues(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
-		writer.Close()
+		if err := writer.Close(); err != nil {
+			t.Fatalf("close error: %v", err)
+		}
 
 		content, err := os.ReadFile(outputPath)
 		if err != nil {
@@ -179,7 +181,9 @@ func TestCollectorService_CollectLeagues(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
-		writer.Close()
+		if err := writer.Close(); err != nil {
+			t.Fatalf("close error: %v", err)
+		}
 
 		content, err := os.ReadFile(outputPath)
 		if err != nil {
@@ -266,6 +270,12 @@ func TestCollectorService_CollectLeagues(t *testing.T) {
 	})
 }
 
+type noOpWriter struct{}
+
+func (w *noOpWriter) Write(value any) error { return nil }
+func (w *noOpWriter) Flush() error          { return nil }
+func (w *noOpWriter) Close() error          { return nil }
+
 type channelLeagueWriter struct {
 	ch chan League
 }
@@ -301,7 +311,7 @@ func TestCollectorService_collectCountryLeagues(t *testing.T) {
 
 		client, _ := NewAPIClient(config)
 
-		service := NewCollectorService(client, &JSONLinesWriter{})
+		service := NewCollectorService(client, &noOpWriter{})
 		output := make(chan League, 10)
 		writer := &channelLeagueWriter{ch: output}
 
@@ -507,7 +517,9 @@ func TestCollectorService_Integration(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
-		writer.Close()
+		if err := writer.Close(); err != nil {
+			t.Fatalf("close error: %v", err)
+		}
 
 		content, err := os.ReadFile(outputPath)
 		if err != nil {
@@ -596,7 +608,9 @@ func TestCollectorService_Integration(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
-		writer.Close()
+		if err := writer.Close(); err != nil {
+			t.Fatalf("close error: %v", err)
+		}
 
 		content, err := os.ReadFile(outputPath)
 		if err != nil {
