@@ -30,4 +30,3 @@ log/
 v1.json
 collector/leagues_raw.json
 analytics/*.parquet
-analytics/*.png
