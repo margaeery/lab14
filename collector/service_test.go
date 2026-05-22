@@ -266,6 +266,15 @@ func TestCollectorService_CollectLeagues(t *testing.T) {
 	})
 }
 
+type channelLeagueWriter struct {
+	ch chan League
+}
+
+func (w *channelLeagueWriter) Write(league League) error {
+	w.ch <- league
+	return nil
+}
+
 func TestCollectorService_collectCountryLeagues(t *testing.T) {
 	t.Run("single page", func(t *testing.T) {
 		leagues := []League{
@@ -294,8 +303,9 @@ func TestCollectorService_collectCountryLeagues(t *testing.T) {
 
 		service := NewCollectorService(client, &JSONLinesWriter{})
 		output := make(chan League, 10)
+		writer := &channelLeagueWriter{ch: output}
 
-		err := service.collectCountryLeagues(context.Background(), 1, output)
+		err := service.collectCountryLeagues(context.Background(), 1, writer)
 		close(output)
 
 		if err != nil {
@@ -348,21 +358,22 @@ func TestCollectorService_collectCountryLeagues(t *testing.T) {
 
 		client, _ := NewAPIClient(config)
 
-		writer, err := NewJSONLinesWriter(outputPath)
+		jsonWriter, err := NewJSONLinesWriter(outputPath)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		defer writer.Close()
+		defer jsonWriter.Close()
 
 		service := &CollectorService{
 			client: client,
-			writer: writer,
+			writer: jsonWriter,
 			limit:  2,
 		}
 
 		output := make(chan League, 10)
+		writer := &channelLeagueWriter{ch: output}
 
-		err = service.collectCountryLeagues(context.Background(), 1, output)
+		err = service.collectCountryLeagues(context.Background(), 1, writer)
 		close(output)
 
 		if err != nil {
@@ -399,19 +410,20 @@ func TestCollectorService_collectCountryLeagues(t *testing.T) {
 
 		client, _ := NewAPIClient(config)
 
-		writer, err := NewJSONLinesWriter(outputPath)
+		jsonWriter, err := NewJSONLinesWriter(outputPath)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		defer writer.Close()
+		defer jsonWriter.Close()
 
-		service := NewCollectorService(client, writer)
+		service := NewCollectorService(client, jsonWriter)
 
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
 
 		output := make(chan League, 10)
-		err = service.collectCountryLeagues(ctx, 1, output)
+		writer := &channelLeagueWriter{ch: output}
+		err = service.collectCountryLeagues(ctx, 1, writer)
 		if err == nil {
 			t.Fatal("expected error for cancelled context")
 		}

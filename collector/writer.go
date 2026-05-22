@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -10,6 +11,7 @@ import (
 
 type JSONLinesWriter struct {
 	file *os.File
+	bw   *bufio.Writer
 	mu   sync.Mutex
 	enc  *json.Encoder
 }
@@ -24,11 +26,13 @@ func NewJSONLinesWriter(path string) (*JSONLinesWriter, error) {
 		return nil, fmt.Errorf("create output file: %w", err)
 	}
 
+	bw := bufio.NewWriter(file)
 	return &JSONLinesWriter{
 		file: file,
-		enc:  json.NewEncoder(file),
+		bw:   bw,
+		enc:  json.NewEncoder(bw),
 	}, nil
-	}
+}
 
 func (writer *JSONLinesWriter) Write(value any) error {
 	writer.mu.Lock()
@@ -36,6 +40,21 @@ func (writer *JSONLinesWriter) Write(value any) error {
 
 	if err := writer.enc.Encode(value); err != nil {
 		return fmt.Errorf("encode json line: %w", err)
+	}
+
+	return nil
+}
+
+func (writer *JSONLinesWriter) Flush() error {
+	writer.mu.Lock()
+	defer writer.mu.Unlock()
+
+	if writer.bw == nil {
+		return nil
+	}
+
+	if err := writer.bw.Flush(); err != nil {
+		return fmt.Errorf("flush buffer: %w", err)
 	}
 
 	return nil
@@ -49,6 +68,7 @@ func (writer *JSONLinesWriter) Close() error {
 		return nil
 	}
 
+	_ = writer.bw.Flush()
 	err := writer.file.Close()
 	writer.file = nil
 	return err

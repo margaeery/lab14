@@ -4,15 +4,16 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 )
 
 type CollectorService struct {
 	client *APIClient
-	writer *JSONLinesWriter
+	writer Writer
 	limit  int
 }
 
-func NewCollectorService(client *APIClient, writer *JSONLinesWriter) *CollectorService {
+func NewCollectorService(client *APIClient, writer Writer) *CollectorService {
 	return &CollectorService{
 		client: client,
 		writer: writer,
@@ -29,24 +30,10 @@ func (service *CollectorService) CollectLeagues(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	leagues := make(chan League)
-	errCh := make(chan error, len(countries))
+	batchWriter := NewBatchWriter(service.writer, 50, 3*time.Second)
+	batchWriter.Start()
 
-	var writerGroup sync.WaitGroup
-	writerGroup.Add(1)
-	go func() {
-		defer writerGroup.Done()
-		for league := range leagues {
-			if err := service.writer.Write(league); err != nil {
-				select {
-				case errCh <- fmt.Errorf("write league %d: %w", league.ID, err):
-				default:
-				}
-				cancel()
-				return
-			}
-		}
-	}()
+	errCh := make(chan error, len(countries))
 
 	var workerGroup sync.WaitGroup
 	for _, country := range countries {
@@ -54,7 +41,7 @@ func (service *CollectorService) CollectLeagues(ctx context.Context) error {
 		workerGroup.Add(1)
 		go func() {
 			defer workerGroup.Done()
-			if err := service.collectCountryLeagues(ctx, country.ID, leagues); err != nil {
+			if err := service.collectCountryLeagues(ctx, country.ID, batchWriter); err != nil {
 				select {
 				case errCh <- fmt.Errorf("collect leagues for country %d: %w", country.ID, err):
 				default:
@@ -65,18 +52,20 @@ func (service *CollectorService) CollectLeagues(ctx context.Context) error {
 	}
 
 	workerGroup.Wait()
-	close(leagues)
-	writerGroup.Wait()
+	closeErr := batchWriter.Close()
 
 	select {
 	case err := <-errCh:
 		return err
 	default:
+		if closeErr != nil {
+			return closeErr
+		}
 		return nil
 	}
 }
 
-func (service *CollectorService) collectCountryLeagues(ctx context.Context, countryID int64, output chan<- League) error {
+func (service *CollectorService) collectCountryLeagues(ctx context.Context, countryID int64, writer LeagueWriter) error {
 	for offset := 0; ; offset += service.limit {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -91,7 +80,10 @@ func (service *CollectorService) collectCountryLeagues(ctx context.Context, coun
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
-			case output <- league:
+			default:
+				if err := writer.Write(league); err != nil {
+					return err
+				}
 			}
 		}
 
