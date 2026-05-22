@@ -9,6 +9,7 @@ from clean import (
     fill_struct_nulls,
     load_data,
     remove_duplicates,
+    save_to_parquet,
 )
 
 
@@ -198,3 +199,93 @@ def test_fill_nulls_empty_frame():
     result = fill_nulls(df)
 
     assert result.height == 0
+
+
+def test_save_to_parquet_creates_file(tmp_path):
+    output_path = tmp_path / "output.parquet"
+    df = pl.DataFrame({
+        "id": [1, 2, 3],
+        "name": ["A", "B", "C"],
+    })
+
+    save_to_parquet(df, str(output_path))
+
+    assert output_path.exists()
+
+    loaded = pl.read_parquet(str(output_path))
+    assert loaded.height == 3
+    assert loaded.width == 2
+    assert loaded["id"].to_list() == [1, 2, 3]
+    assert loaded["name"].to_list() == ["A", "B", "C"]
+
+
+def test_save_to_parquet_empty_frame(tmp_path):
+    output_path = tmp_path / "empty.parquet"
+    df = pl.DataFrame({
+        "id": pl.Series([], dtype=pl.Int64),
+        "name": pl.Series([], dtype=pl.String),
+    })
+
+    save_to_parquet(df, str(output_path))
+
+    assert output_path.exists()
+
+    loaded = pl.read_parquet(str(output_path))
+    assert loaded.height == 0
+    assert loaded.width == 2
+
+
+def test_save_to_parquet_with_struct(tmp_path):
+    output_path = tmp_path / "struct.parquet"
+    df = pl.DataFrame({
+        "id": [1, 2],
+        "country": [
+            {"id": 10, "code": "AA"},
+            {"id": 20, "code": "BB"},
+        ],
+    })
+
+    save_to_parquet(df, str(output_path))
+
+    loaded = pl.read_parquet(str(output_path))
+    assert loaded.height == 2
+    assert loaded["country"][0]["id"] == 10
+    assert loaded["country"][1]["code"] == "BB"
+
+
+def test_save_to_parquet_overwrites_existing(tmp_path):
+    output_path = tmp_path / "overwrite.parquet"
+    df1 = pl.DataFrame({"id": [1, 2]})
+    df2 = pl.DataFrame({"id": [3, 4, 5]})
+
+    save_to_parquet(df1, str(output_path))
+    save_to_parquet(df2, str(output_path))
+
+    loaded = pl.read_parquet(str(output_path))
+    assert loaded.height == 3
+    assert loaded["id"].to_list() == [3, 4, 5]
+
+
+def test_save_to_parquet_invalid_path():
+    df = pl.DataFrame({"id": [1]})
+
+    with pytest.raises(Exception):
+        save_to_parquet(df, "/nonexistent/directory/file.parquet")
+
+
+def test_save_to_parquet_preserves_schema(tmp_path):
+    output_path = tmp_path / "schema.parquet"
+    df = pl.DataFrame({
+        "int_col": pl.Series([1, 2], dtype=pl.Int64),
+        "float_col": pl.Series([1.5, 2.5], dtype=pl.Float64),
+        "str_col": pl.Series(["a", "b"], dtype=pl.String),
+        "bool_col": pl.Series([True, False], dtype=pl.Boolean),
+    })
+
+    save_to_parquet(df, str(output_path))
+
+    loaded = pl.read_parquet(str(output_path))
+    assert loaded["int_col"].dtype == pl.Int64
+    assert loaded["float_col"].dtype == pl.Float64
+    assert loaded["str_col"].dtype == pl.String
+    assert loaded["bool_col"].dtype == pl.Boolean

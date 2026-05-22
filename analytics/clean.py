@@ -126,6 +126,12 @@ def cast_types(df):
     return df
 
 
+def save_to_parquet(df, file_path):
+    logging.info("Saving DataFrame to Parquet: %s", file_path)
+    df.write_parquet(file_path)
+    logging.info("Saved %d rows to %s", df.height, file_path)
+
+
 def main():
     project_root = os.path.dirname(
         os.path.dirname(os.path.abspath(__file__)),
@@ -133,11 +139,16 @@ def main():
     input_path = os.path.join(
         project_root, "collector", "leagues_raw.json",
     )
+    output_path = os.path.join(
+        project_root, "analytics", "leagues_clean.parquet",
+    )
 
     df = load_data(input_path)
     df = remove_duplicates(df)
     df = fill_nulls(df)
     df = cast_types(df)
+
+    save_to_parquet(df, output_path)
 
     logging.info("Final dataset: %d rows, %d columns", df.height, df.width)
     logging.info("Final schema: %s", df.schema)
