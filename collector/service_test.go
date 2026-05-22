@@ -532,4 +532,80 @@ func TestCollectorService_Integration(t *testing.T) {
 			t.Errorf("expected %d decoded leagues, got %d", len(leaguesData), len(decodedLeagues))
 		}
 	})
+
+	t.Run("batch collection more than 50 records", func(t *testing.T) {
+		tempDir := t.TempDir()
+		outputPath := filepath.Join(tempDir, "leagues.jsonl")
+
+		countriesData := []Country{
+			{ID: 1, Code: "RU", Name: "Russia"},
+		}
+
+		leaguesData := make([]League, 55)
+		for i := 0; i < 55; i++ {
+			leaguesData[i] = League{ID: int64(i + 1), Name: fmt.Sprintf("League %d", i+1), Country: &countriesData[0]}
+		}
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+
+			if r.URL.Path == "/Pari/countries" {
+				response := apiResponse[Country]{
+					Status: "ok",
+					Data:   countriesData,
+				}
+				json.NewEncoder(w).Encode(response)
+				return
+			}
+
+			if r.URL.Path == "/Pari/leagues" {
+				totalCount := len(leaguesData)
+				response := apiResponse[League]{
+					Status:     "ok",
+					Data:       leaguesData,
+					TotalCount: &totalCount,
+				}
+				json.NewEncoder(w).Encode(response)
+				return
+			}
+
+			w.WriteHeader(http.StatusNotFound)
+		}))
+		defer server.Close()
+
+		config := Config{
+			APIKey:  "test-key",
+			BaseURL: server.URL,
+		}
+
+		client, err := NewAPIClient(config)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		writer, err := NewJSONLinesWriter(outputPath)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		service := NewCollectorService(client, writer)
+
+		ctx := context.Background()
+		err = service.CollectLeagues(ctx)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		writer.Close()
+
+		content, err := os.ReadFile(outputPath)
+		if err != nil {
+			t.Fatalf("failed to read output file: %v", err)
+		}
+
+		lines := strings.Split(strings.TrimSpace(string(content)), "\n")
+		if len(lines) != 55 {
+			t.Errorf("expected 55 leagues, got %d", len(lines))
+		}
+	})
 }

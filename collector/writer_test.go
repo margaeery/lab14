@@ -175,3 +175,59 @@ func TestJSONLinesWriter_Concurrent(t *testing.T) {
 		t.Errorf("expected 10 lines, got %d", len(lines))
 	}
 }
+
+func TestJSONLinesWriter_Flush(t *testing.T) {
+	t.Run("flush writes buffer to file", func(t *testing.T) {
+		tempDir := t.TempDir()
+		outputPath := filepath.Join(tempDir, "output.jsonl")
+
+		writer, err := NewJSONLinesWriter(outputPath)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		defer writer.Close()
+
+		league := League{ID: 1, Name: "Test League"}
+		if err := writer.Write(league); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if err := writer.Flush(); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		content, err := os.ReadFile(outputPath)
+		if err != nil {
+			t.Fatalf("failed to read output file: %v", err)
+		}
+
+		if len(content) == 0 {
+			t.Errorf("expected content after flush, got empty file")
+		}
+
+		var decoded League
+		if err := json.Unmarshal(content, &decoded); err != nil {
+			t.Fatalf("failed to decode: %v", err)
+		}
+
+		if decoded.ID != 1 {
+			t.Errorf("expected ID 1, got %d", decoded.ID)
+		}
+	})
+
+	t.Run("flush on closed writer", func(t *testing.T) {
+		tempDir := t.TempDir()
+		outputPath := filepath.Join(tempDir, "output.jsonl")
+
+		writer, err := NewJSONLinesWriter(outputPath)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		writer.Close()
+
+		if err := writer.Flush(); err != nil {
+			t.Fatalf("unexpected error on flush after close: %v", err)
+		}
+	})
+}
